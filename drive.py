@@ -1,24 +1,24 @@
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import pandas as pd
 import streamlit as st
+import os
 
 st.set_page_config(layout="wide")
 st.markdown("### ✍️ Edit User Feedback/Remarks in Table")
 
 # -----------------------------------------------------
-# GOOGLE SHEET (CSV export) LOGIC
+# GOOGLE SHEETS (read-only) LOGIC
 # -----------------------------------------------------
 def load_data():
-    sid = st.secrets["gdrive"]["spreadsheet_id"]
-    gid = st.secrets["gdrive"]["sheet_gid"]
-    url = f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}"
+    spreadsheet_id = st.secrets["gdrive"]["spreadsheet_id"]
+    sheet_gid = st.secrets["gdrive"]["sheet_gid"]
+    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={sheet_gid}"
     return pd.read_csv(url)
 
 def save_data(df):
-    # ⚠️ CSV export from Google Sheets is read-only
-    # This currently saves only a local copy
-    df.to_csv("local_copy.csv", index=False)
-    st.info("✅ Saved locally (Google Sheets write-back not enabled yet)")
+    output = "local_copy.xlsx"
+    df.to_excel(output, index=False)
+    st.success(f"✅ Saved locally to {output} (Google Sheets write-back not enabled yet)")
 
 # -----------------------------------------------------
 # LOAD DATA INTO SESSION
@@ -26,15 +26,15 @@ def save_data(df):
 if "df" not in st.session_state:
     st.session_state.df = load_data()
 
-filtered = st.session_state.df.copy()  # you may add filters here
+filtered = st.session_state.df.copy()
 
 editable_filtered = filtered.copy()
 if not editable_filtered.empty:
-    # Add stable IDs for reliable row tracking
+    # Add stable IDs for row tracking
     if "_original_sheet_index" not in editable_filtered.columns:
         editable_filtered["_original_sheet_index"] = editable_filtered.index
     if "_sheet_row" not in editable_filtered.columns:
-        editable_filtered["_sheet_row"] = editable_filtered.index + 2  # header row + 1
+        editable_filtered["_sheet_row"] = editable_filtered.index + 2
 
     display_cols = [
         "Date of Inspection", "Type of Inspection", "Location", "Head", "Sub Head",
@@ -43,13 +43,13 @@ if not editable_filtered.empty:
     ]
     editable_df = editable_filtered[display_cols].copy()
 
-    # Format dates
+    # Format date column
     if "Date of Inspection" in editable_df.columns:
         editable_df["Date of Inspection"] = pd.to_datetime(
             editable_df["Date of Inspection"], errors="coerce"
         ).dt.strftime("%Y-%m-%d")
 
-    # Add Status column
+    # Add status column
     editable_df.insert(
         editable_df.columns.get_loc("User Feedback/Remark") + 1,
         "Status",
@@ -57,7 +57,7 @@ if not editable_filtered.empty:
          for _, r in editable_df.iterrows()]
     )
 
-    # Carry ID columns
+    # Add ID columns
     editable_df["_original_sheet_index"] = editable_filtered["_original_sheet_index"].values
     editable_df["_sheet_row"] = editable_filtered["_sheet_row"].values
 
@@ -94,7 +94,6 @@ if not editable_filtered.empty:
         st.session_state.df = load_data()
         st.success("✅ Data refreshed successfully!")
 
-    # Submission logic
     if submitted:
         orig = editable_filtered.set_index("_original_sheet_index")
         new = edited_df.set_index("_original_sheet_index")
@@ -114,13 +113,13 @@ if not editable_filtered.empty:
                 user_remark = new.loc[oid, "User Feedback/Remark"].strip()
                 if not user_remark:
                     continue
-                # Update Feedback directly
+                # Move remark into Feedback
                 diffs.at[oid, "Feedback"] = user_remark
                 diffs.at[oid, "User Feedback/Remark"] = ""
                 st.session_state.df.at[oid, "Feedback"] = user_remark
                 st.session_state.df.at[oid, "User Feedback/Remark"] = ""
 
-            # Save locally
+            # Save updated file locally
             save_data(st.session_state.df)
             st.success(f"✅ Updated {len(changed_ids)} Feedback row(s).")
         else:
