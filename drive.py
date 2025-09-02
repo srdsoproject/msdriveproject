@@ -15,8 +15,8 @@ def load_data():
     return pd.read_csv(url)
 
 def save_data(df):
-    # ⚠️ Google Sheets is read-only with CSV export
-    # Later, replace with PyDrive2/Sheets API to push updates
+    # ⚠️ CSV export from Google Sheets is read-only
+    # This currently saves only a local copy
     df.to_csv("local_copy.csv", index=False)
     st.info("✅ Saved locally (Google Sheets write-back not enabled yet)")
 
@@ -26,7 +26,7 @@ def save_data(df):
 if "df" not in st.session_state:
     st.session_state.df = load_data()
 
-filtered = st.session_state.df.copy()  # you can add filtering logic here
+filtered = st.session_state.df.copy()  # you may add filters here
 
 editable_filtered = filtered.copy()
 if not editable_filtered.empty:
@@ -34,7 +34,7 @@ if not editable_filtered.empty:
     if "_original_sheet_index" not in editable_filtered.columns:
         editable_filtered["_original_sheet_index"] = editable_filtered.index
     if "_sheet_row" not in editable_filtered.columns:
-        editable_filtered["_sheet_row"] = editable_filtered.index + 2  # +2 (header row + 1)
+        editable_filtered["_sheet_row"] = editable_filtered.index + 2  # header row + 1
 
     display_cols = [
         "Date of Inspection", "Type of Inspection", "Location", "Head", "Sub Head",
@@ -43,21 +43,21 @@ if not editable_filtered.empty:
     ]
     editable_df = editable_filtered[display_cols].copy()
 
-    # Format date column
+    # Format dates
     if "Date of Inspection" in editable_df.columns:
         editable_df["Date of Inspection"] = pd.to_datetime(
             editable_df["Date of Inspection"], errors="coerce"
         ).dt.strftime("%Y-%m-%d")
 
-    # Insert Status column
+    # Add Status column
     editable_df.insert(
         editable_df.columns.get_loc("User Feedback/Remark") + 1,
         "Status",
-        ["🟢 OK" if pd.notna(r["Feedback"]) else "🔴 Pending"
+        ["🟢 OK" if pd.notna(r["Feedback"]) and str(r["Feedback"]).strip() != "" else "🔴 Pending"
          for _, r in editable_df.iterrows()]
     )
 
-    # Keep ID columns for comparison
+    # Carry ID columns
     editable_df["_original_sheet_index"] = editable_filtered["_original_sheet_index"].values
     editable_df["_sheet_row"] = editable_filtered["_sheet_row"].values
 
@@ -114,13 +114,13 @@ if not editable_filtered.empty:
                 user_remark = new.loc[oid, "User Feedback/Remark"].strip()
                 if not user_remark:
                     continue
-                # Simplified update logic
+                # Update Feedback directly
                 diffs.at[oid, "Feedback"] = user_remark
                 diffs.at[oid, "User Feedback/Remark"] = ""
                 st.session_state.df.at[oid, "Feedback"] = user_remark
                 st.session_state.df.at[oid, "User Feedback/Remark"] = ""
 
-            # Save (currently only local)
+            # Save locally
             save_data(st.session_state.df)
             st.success(f"✅ Updated {len(changed_ids)} Feedback row(s).")
         else:
